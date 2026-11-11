@@ -164,20 +164,31 @@ def append_result(record):
 
 def delete_result(index):
     """CSV内の指定位置のレコードを削除する。"""
-    return delete_results([index])
+    records = load_results()
+    if index < 0 or index >= len(records):
+        return False
+    records.pop(index)
+    _write_results(records)
+    return True
 
 
 def delete_results(indices):
-    """CSV内の複数位置のレコードをまとめて削除する。"""
+    """CSV内の複数レコードを一括削除する。"""
     records = load_results()
-    valid_indices = {
-        int(index) for index in indices
-        if isinstance(index, int) and 0 <= index < len(records)
-    }
-    if not valid_indices:
+    valid = {int(i) for i in indices if 0 <= int(i) < len(records)}
+    if not valid:
         return False
-    _write_results([
-        record for index, record in enumerate(records)
-        if index not in valid_indices
-    ])
+    remaining = [record for i, record in enumerate(records) if i not in valid]
+    _write_results(remaining)
     return True
+
+
+def delete_locations(names):
+    """登録済み場所から指定した複数の場所を削除し、削除件数を返す。"""
+    targets = {str(name).strip() for name in names if str(name).strip()}
+    before = load_locations()
+    remaining = [name for name in before if name not in targets]
+    removed = len(before) - len(remaining)
+    if removed:
+        save_locations(remaining)
+    return removed

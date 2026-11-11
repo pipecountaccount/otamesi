@@ -17,6 +17,7 @@ from data_manager import (
     append_result,
     delete_result,
     delete_results,
+    delete_locations,
     import_locations_from_csv,
     load_locations,
     load_results,
@@ -54,6 +55,9 @@ DEFAULTS = {
     "saved_filename": None,
     "saved_message": None,
     "location_import_message": None,
+    "zip_downloaded": False,
+    "flash_message": None,
+    "flash_kind": "success",
 }
 
 for key, value in DEFAULTS.items():
@@ -94,6 +98,38 @@ def reset_current_image():
     st.session_state.saved_zip_data = None
     st.session_state.saved_filename = None
     st.session_state.saved_message = None
+    st.session_state.zip_downloaded = False
+
+
+def set_flash(message, kind="success"):
+    st.session_state.flash_message = message
+    st.session_state.flash_kind = kind
+
+
+def show_flash():
+    message = st.session_state.get("flash_message")
+    if message:
+        kind = st.session_state.get("flash_kind", "success")
+        if kind == "error":
+            st.error(message)
+        elif kind == "warning":
+            st.warning(message)
+        else:
+            st.success(message)
+        st.session_state.flash_message = None
+
+
+def clear_detection_data_after_download():
+    """ZIPのダウンロード操作後、検出結果だけを消去し、場所一覧は保持する。"""
+    if CSV_PATH.exists():
+        CSV_PATH.unlink()
+    reports_dir = DATA_DIR / "reports"
+    if reports_dir.exists():
+        for report_file in reports_dir.glob("*.html"):
+            report_file.unlink()
+    st.session_state.zip_downloaded = True
+    st.session_state.saved_zip_data = None
+    set_flash("ZIPのダウンロード操作を受け付けました。検出結果データを消去しました（過去の場所は保持しています）。")
 
 
 def make_html_report(record, image_bytes=None):
@@ -183,7 +219,7 @@ def make_all_html_report(records):
             ("最終合計", f'{record.get("最終合計", "")} 本'),
             ("備考", record.get("備考", "")),
         ]
-        table_rows = "\\n".join(
+        table_rows = "\n".join(
             f"<tr><th>{escape(str(key))}</th><td>{escape(str(value))}</td></tr>"
             for key, value in rows
         )
@@ -213,7 +249,7 @@ def make_all_html_report(records):
             f'<section><h2>記録 {number}</h2><table>{table_rows}</table>{image_html}</section>'
         )
 
-    body = "\\n".join(sections) if sections else "<p>保存データはありません。</p>"
+    body = "\n".join(sections) if sections else "<p>保存データはありません。</p>"
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -257,6 +293,7 @@ def create_saved_record_export(record):
 # 4. 画面切り替え
 # -------------------------------------------------
 st.title("PINEAPPLE 🍍")
+show_flash()
 page = st.sidebar.radio("画面", ["画像を判定する", "保存データを確認する"])
 
 
@@ -277,10 +314,27 @@ if page == "保存データを確認する":
         if st.button("CSVの場所を登録する", key="import_locations_button"):
             try:
                 added, total = import_locations_from_csv(locations_csv.getvalue())
-                st.success(f"{total}件の場所を読み込みました。新規登録は{added}件です。")
+                set_flash(f"{total}件の場所を読み込みました。新規登録は{added}件です。")
                 st.rerun()
             except Exception as exc:
                 st.error(f"CSVを読み込めませんでした: {exc}")
+
+    st.divider()
+    st.subheader("過去に登録した場所の管理")
+    saved_locations = load_locations()
+    if saved_locations:
+        selected_locations = st.multiselect(
+            "削除する場所を複数選択してください",
+            options=saved_locations,
+            key="locations_to_delete",
+        )
+        if st.button("🗑️ 選択した場所をまとめて削除", disabled=not selected_locations):
+            removed = delete_locations(selected_locations)
+            st.session_state.pop("locations_to_delete", None)
+            set_flash(f"過去の場所を{removed}件削除しました。")
+            st.rerun()
+    else:
+        st.info("登録済みの場所はありません。")
 
     st.divider()
     records = load_results()
@@ -314,6 +368,7 @@ if page == "保存データを確認する":
             file_name=f"{export_name}_全データ.zip",
             mime="application/zip",
             type="primary",
+            on_click=clear_detection_data_after_download,
         )
 
         st.divider()
@@ -336,7 +391,7 @@ if page == "保存データを確認する":
         ):
             delete_indices = [deletion_choices[label] for label in selected_delete_labels]
             if delete_results(delete_indices):
-                st.success(f"{len(delete_indices)}件のデータを削除しました。")
+                set_flash(f"{len(delete_indices)}件の検出結果を削除しました。過去の場所は保持しています。")
                 st.session_state.pop("records_to_delete", None)
                 st.rerun()
             else:
@@ -377,10 +432,12 @@ if uploaded_file:
         with col1:
             if st.button("✂️ 検出エリアを編集（除外設定）", use_container_width=True):
                 st.session_state.phase = "edit"
+                set_flash("除外エリアの編集画面に切り替えました。")
                 st.rerun()
         with col2:
             if st.button("🚀 パイプを検出開始", type="primary", use_container_width=True):
                 st.session_state.phase = "detect"
+                set_flash("検出画面に切り替えました。")
                 st.rerun()
 
     # -------------------------------------------------
@@ -421,15 +478,20 @@ if uploaded_file:
         with col1:
             if st.button("✅ 確定して検出へ", type="primary"):
                 st.session_state.phase = "detect"
+                set_flash("検出画面に切り替えました。")
                 st.rerun()
         with col2:
             if st.button("↩️ 1つ戻す"):
                 if st.session_state.mask_rects:
                     st.session_state.mask_rects.pop()
+                    set_flash("最後に追加した除外エリアを1つ戻しました。")
+                else:
+                    set_flash("戻せる除外エリアはありません。", "warning")
                 st.rerun()
         with col3:
             if st.button("❌ キャンセル"):
                 st.session_state.phase = "upload"
+                set_flash("除外エリアの編集をキャンセルしました。")
                 st.rerun()
 
     # -------------------------------------------------
@@ -496,6 +558,7 @@ if uploaded_file:
             )
             if st.button("🔄 全リセット（手動追加分のみ）"):
                 st.session_state.points = []
+                set_flash("手動追加したポイントをすべてリセットしました。")
                 st.rerun()
 
         fix_coords = streamlit_image_coordinates(
@@ -589,15 +652,16 @@ if uploaded_file:
                     html_text, encoding="utf-8"
                 )
 
-                st.session_state.saved_zip_data = create_export_zip(record, html_text)
+                st.session_state.saved_zip_data = create_saved_record_export(record)
                 st.session_state.saved_filename = f"{export_name}_CSV_HTML.zip"
+                st.session_state.zip_downloaded = False
                 st.session_state.saved_message = (
-                    "判定結果を保存しました。CSVとHTMLのファイル名には日付とグループ名を使用します。"
-                    "画像ファイル単体は保存せず、HTML内に埋め込んでいます。"
+                    "判定結果を保存しました。ZIPには保存済みの全検出結果を含めます。"
+                    "ダウンロード後は検出結果データを消去し、過去の場所は残します。"
                 )
                 st.rerun()
 
-        if st.session_state.saved_zip_data:
+        if st.session_state.saved_zip_data and not st.session_state.zip_downloaded:
             st.success(st.session_state.saved_message or "保存しました。")
             st.download_button(
                 "⬇️ CSV＋検出結果HTMLをダウンロード（ZIP）",
@@ -605,10 +669,12 @@ if uploaded_file:
                 file_name=st.session_state.saved_filename,
                 mime="application/zip",
                 type="primary",
+                on_click=clear_detection_data_after_download,
             )
 
         if st.button("⏮️ 次の画像へ"):
             reset_current_image()
+            set_flash("次の画像を選択できる状態に戻しました。")
             st.rerun()
 
 else:
