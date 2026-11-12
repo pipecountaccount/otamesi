@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import io
 import re
 import zipfile
@@ -367,8 +368,13 @@ if page == "保存データを確認する":
             file_name=f"{export_name}_全データ.zip",
             mime="application/zip",
             type="primary",
-            on_click=clear_detection_data_after_download,
+            on_click="ignore",
         )
+
+        st.caption("ダウンロード後、必要であれば下のボタンからアプリ内の検出結果を削除できます。")
+        if st.button("🗑️ ダウンロード後に検出結果をすべて削除", key="clear_after_saved_page"):
+            clear_detection_data_after_download()
+            st.rerun()
 
         st.divider()
         st.subheader("保存データの一括削除")
@@ -412,7 +418,7 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
     upload_bytes = uploaded_file.getvalue()
-    upload_id = f"{uploaded_file.name}_{len(upload_bytes)}"
+    upload_id = hashlib.sha256(upload_bytes).hexdigest()
 
     if st.session_state.current_upload_id != upload_id:
         reset_current_image()
@@ -426,7 +432,7 @@ if uploaded_file:
     # PHASE: UPLOAD
     # -------------------------------------------------
     if st.session_state.phase == "upload":
-        st.image(base_image, caption="アップロード画像", width=600)
+        st.image(base_image, caption="アップロード画像", width="stretch")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✂️ 検出エリアを編集（除外設定）", use_container_width=True):
@@ -668,8 +674,12 @@ if uploaded_file:
                 file_name=st.session_state.saved_filename,
                 mime="application/zip",
                 type="primary",
-                on_click=clear_detection_data_after_download,
+                on_click="ignore",
             )
+            st.caption("ダウンロード後、必要であれば下のボタンからアプリ内の検出結果を削除できます。")
+            if st.button("🗑️ ダウンロード後に検出結果をすべて削除", key="clear_after_detection_download"):
+                clear_detection_data_after_download()
+                st.rerun()
 
         if st.button("⏮️ 次の画像へ"):
             reset_current_image()
