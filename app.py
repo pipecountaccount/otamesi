@@ -121,7 +121,7 @@ def show_flash():
 
 
 def clear_detection_data_after_download():
-    """ZIPのダウンロード操作後、検出結果だけを消去し、場所一覧は保持する。"""
+    """ダウンロードボタンが押された後、検出結果だけを削除する。場所一覧は保持する。"""
     if CSV_PATH.exists():
         CSV_PATH.unlink()
     reports_dir = DATA_DIR / "reports"
@@ -129,7 +129,11 @@ def clear_detection_data_after_download():
         for report_file in reports_dir.glob("*.html"):
             report_file.unlink()
     st.session_state.zip_downloaded = True
-    set_flash("ZIPのダウンロード操作を受け付けました。検出結果データを消去しました（過去の場所は保持しています）。")
+    set_flash(
+        "ダウンロード操作を受け付けました。検出結果データを削除しました。"
+        "過去の場所一覧は保持しています。",
+        "success",
+    )
 
 
 def make_html_report(record, image_bytes=None):
@@ -183,26 +187,25 @@ img {{ display: block; max-width: 100%; height: auto; margin: 20px auto; border:
 
 
 def export_basename(record):
-    """日付・時刻・グループ名を使ったファイル名を作成する。"""
+    """CSV・HTML・ZIP用に、日付と場所だけのファイル名を作る。"""
     raw_datetime = str(record.get("日時", "")).strip()
-    # 新形式: YYYYMMDD_HHMMSS -> YYYY-MM-DD_HH-MM-SS
-    if len(raw_datetime) >= 15 and raw_datetime[:8].isdigit():
+    if len(raw_datetime) >= 8 and raw_datetime[:8].isdigit():
         date_part = f"{raw_datetime[:4]}-{raw_datetime[4:6]}-{raw_datetime[6:8]}"
-        time_part = raw_datetime[9:15].replace(":", "")
-        if time_part.isdigit():
-            time_part = f"{time_part[:2]}-{time_part[2:4]}-{time_part[4:6]}"
-        else:
-            time_part = safe_filename_part(time_part, "no_time")
     else:
         try:
-            parsed = datetime.fromisoformat(raw_datetime)
-            date_part = parsed.strftime("%Y-%m-%d")
-            time_part = parsed.strftime("%H-%M-%S")
+            date_part = datetime.fromisoformat(raw_datetime).strftime("%Y-%m-%d")
         except ValueError:
-            date_part = safe_filename_part(raw_datetime, "no_date")
-            time_part = "no_time"
-    group_part = safe_filename_part(record.get("グループ", ""), "no_group")
-    return f"{date_part}_{time_part}_{group_part}"
+            date_part = safe_filename_part(raw_datetime, "no-date")
+    location_part = safe_filename_part(record.get("場所", ""), "no-location")
+    return f"{date_part}_{location_part}"
+
+
+def internal_report_basename(record):
+    """同じ日・場所に複数記録があっても画像が上書きされない内部HTML名。"""
+    timestamp = safe_filename_part(record.get("日時", ""), "no-date")
+    group = safe_filename_part(record.get("グループ", ""), "no-group")
+    location = safe_filename_part(record.get("場所", ""), "no-location")
+    return f"{timestamp}_{group}_{location}"
 
 
 def make_all_html_report(records):
@@ -228,12 +231,12 @@ def make_all_html_report(records):
         image_html = ""
         legacy_dt = safe_filename_part(record.get("日時", ""), "no_date")
         legacy_loc = safe_filename_part(record.get("場所", ""), "no_location")
-        current_base = export_basename(record)
-        previous_base = current_base.rsplit("_", 1)[0]
+        legacy_group = safe_filename_part(record.get("グループ", ""), "no_group")
         candidates = [
-            reports_dir / f"{current_base}.html",
+            reports_dir / f"{internal_report_basename(record)}.html",
+            reports_dir / f"{legacy_dt}_{legacy_group}.html",
             reports_dir / f"{legacy_dt}_{legacy_loc}.html",
-            reports_dir / f"{previous_base}.html",
+            reports_dir / f"{export_basename(record)}.html",
         ]
         for report_path in candidates:
             if report_path.exists():
@@ -365,16 +368,14 @@ if page == "保存データを確認する":
         st.download_button(
             "⬇️ 全保存データのCSVとHTMLをダウンロード",
             data=export_data,
-            file_name=f"{export_name}_全データ.zip",
+            file_name=f"{export_name}.zip",
             mime="application/zip",
             type="primary",
-            on_click="ignore",
+            key="download_all_saved_records",
+            on_click=clear_detection_data_after_download,
         )
-
-        st.caption("ダウンロード後、必要であれば下のボタンからアプリ内の検出結果を削除できます。")
-        if st.button("🗑️ ダウンロード後に検出結果をすべて削除", key="clear_after_saved_page"):
-            clear_detection_data_after_download()
-            st.rerun()
+        if st.session_state.zip_downloaded:
+            st.info("ダウンロード操作後、検出結果データは自動削除されます。過去の場所一覧は残ります。")
 
         st.divider()
         st.subheader("保存データの一括削除")
@@ -432,7 +433,7 @@ if uploaded_file:
     # PHASE: UPLOAD
     # -------------------------------------------------
     if st.session_state.phase == "upload":
-        st.image(base_image, caption="アップロード画像", width="stretch")
+        st.image(upload_bytes, caption="アップロード画像", output_format="auto", width="stretch")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✂️ 検出エリアを編集（除外設定）", use_container_width=True):
@@ -653,12 +654,13 @@ if uploaded_file:
                 reports_dir = DATA_DIR / "reports"
                 reports_dir.mkdir(parents=True, exist_ok=True)
                 export_name = export_basename(record)
-                (reports_dir / f"{export_name}.html").write_text(
+                internal_name = internal_report_basename(record)
+                (reports_dir / f"{internal_name}.html").write_text(
                     html_text, encoding="utf-8"
                 )
 
                 st.session_state.saved_zip_data = create_saved_record_export(record)
-                st.session_state.saved_filename = f"{export_name}_CSV_HTML.zip"
+                st.session_state.saved_filename = f"{export_name}.zip"
                 st.session_state.zip_downloaded = False
                 st.session_state.saved_message = (
                     "判定結果を保存しました。ZIPには保存済みの全検出結果を含めます。"
@@ -674,12 +676,12 @@ if uploaded_file:
                 file_name=st.session_state.saved_filename,
                 mime="application/zip",
                 type="primary",
-                on_click="ignore",
+                key="download_detection_archive",
+                on_click=clear_detection_data_after_download,
             )
-            st.caption("ダウンロード後、必要であれば下のボタンからアプリ内の検出結果を削除できます。")
-            if st.button("🗑️ ダウンロード後に検出結果をすべて削除", key="clear_after_detection_download"):
-                clear_detection_data_after_download()
-                st.rerun()
+            st.caption("ダウンロードボタンを押すと、検出結果データは自動削除されます。過去の場所一覧は残ります。")
+        elif st.session_state.zip_downloaded:
+            st.success("ダウンロード操作後、検出結果データを自動削除しました。")
 
         if st.button("⏮️ 次の画像へ"):
             reset_current_image()
