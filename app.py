@@ -8,7 +8,7 @@ from html import escape
 import cv2
 import numpy as np
 import streamlit as st
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw
 from ultralytics import YOLO
 from streamlit_image_coordinates import streamlit_image_coordinates
 
@@ -128,7 +128,6 @@ def clear_detection_data_after_download():
         for report_file in reports_dir.glob("*.html"):
             report_file.unlink()
     st.session_state.zip_downloaded = True
-    st.session_state.saved_zip_data = None
     set_flash("ZIPのダウンロード操作を受け付けました。検出結果データを消去しました（過去の場所は保持しています）。")
 
 
@@ -368,13 +367,8 @@ if page == "保存データを確認する":
             file_name=f"{export_name}_全データ.zip",
             mime="application/zip",
             type="primary",
-            on_click="ignore",
-            key="download_all_records_zip",
+            on_click=clear_detection_data_after_download,
         )
-        st.caption("ダウンロードが完了したことを確認してから、必要に応じて下のボタンで検出結果を消去してください。")
-        if st.button("ダウンロード後に検出結果を消去する", key="clear_records_after_download"):
-            clear_detection_data_after_download()
-            st.rerun()
 
         st.divider()
         st.subheader("保存データの一括削除")
@@ -424,14 +418,7 @@ if uploaded_file:
         reset_current_image()
         st.session_state.current_upload_id = upload_id
 
-    try:
-        original_image = Image.open(io.BytesIO(upload_bytes))
-        original_image = ImageOps.exif_transpose(original_image).convert("RGB")
-        original_image.load()
-    except Exception as exc:
-        st.error(f"画像を読み込めませんでした。JPEGまたはPNG画像を選び直してください。詳細: {exc}")
-        st.stop()
-
+    original_image = Image.open(io.BytesIO(upload_bytes)).convert("RGB")
     base_image = resize_with_aspect_ratio(original_image, TARGET_SIZE)
     display_width, display_height = base_image.size
 
@@ -439,7 +426,7 @@ if uploaded_file:
     # PHASE: UPLOAD
     # -------------------------------------------------
     if st.session_state.phase == "upload":
-        st.image(base_image, caption="アップロード画像", use_container_width=True)
+        st.image(base_image, caption="アップロード画像", width=600)
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✂️ 検出エリアを編集（除外設定）", use_container_width=True):
@@ -458,7 +445,6 @@ if uploaded_file:
     elif st.session_state.phase == "edit":
         st.subheader("除外エリアの設定（2点クリックで四角形を作成）")
         edit_img = apply_masks(base_image.copy(), st.session_state.mask_rects)
-        st.image(edit_img, caption="アップロード画像（除外エリア編集中）", use_container_width=True)
 
         if st.session_state.temp_point:
             draw = ImageDraw.Draw(edit_img)
@@ -574,11 +560,6 @@ if uploaded_file:
                 set_flash("手動追加したポイントをすべてリセットしました。")
                 st.rerun()
 
-        st.image(
-            display_np,
-            caption="検出結果画像（クリック操作用）",
-            use_container_width=True,
-        )
         fix_coords = streamlit_image_coordinates(
             Image.fromarray(display_np), key="manual_fix", width=display_width
         )
@@ -687,13 +668,8 @@ if uploaded_file:
                 file_name=st.session_state.saved_filename,
                 mime="application/zip",
                 type="primary",
-                on_click="ignore",
-                key="download_saved_result_zip",
+                on_click=clear_detection_data_after_download,
             )
-            st.caption("ダウンロードが完了したことを確認してから、必要に応じて下のボタンで検出結果を消去してください。")
-            if st.button("ダウンロード後に検出結果を消去する", key="clear_saved_result_after_download"):
-                clear_detection_data_after_download()
-                st.rerun()
 
         if st.button("⏮️ 次の画像へ"):
             reset_current_image()
