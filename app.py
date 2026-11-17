@@ -653,8 +653,10 @@ if uploaded_file:
                 st.session_state.saved_filename = f"{export_name}_CSV_HTML.zip"
                 st.session_state.zip_downloaded = False
                 st.session_state.saved_message = (
-                    "判定結果を保存しました。ZIPには保存済みの全検出結果を含めます。"
-                    "ダウンロード後は検出結果データを消去し、過去の場所は残します。"
+                    "判定結果を保存しました。ダウンロードする際に、ZIPファイルには"
+                    "保存済みの全検出結果を含めます。必要ないデータは"
+                    "「保存データを確認する」から削除してからダウンロードを行ってください。"
+                    "なおZIPファイルにはCSVとHTMLファイルがあります。"
                 )
                 st.rerun()
 
