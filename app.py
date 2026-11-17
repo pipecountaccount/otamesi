@@ -15,7 +15,6 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 from data_manager import (
     add_location,
     append_result,
-    delete_result,
     delete_results,
     delete_locations,
     import_locations_from_csv,
@@ -117,19 +116,6 @@ def show_flash():
         else:
             st.success(message)
         st.session_state.flash_message = None
-
-
-def clear_detection_data_after_download():
-    """ZIPのダウンロード操作後、検出結果だけを消去し、場所一覧は保持する。"""
-    if CSV_PATH.exists():
-        CSV_PATH.unlink()
-    reports_dir = DATA_DIR / "reports"
-    if reports_dir.exists():
-        for report_file in reports_dir.glob("*.html"):
-            report_file.unlink()
-    st.session_state.zip_downloaded = True
-    st.session_state.saved_zip_data = None
-    set_flash("ZIPのダウンロード操作を受け付けました。検出結果データを消去しました（過去の場所は保持しています）。")
 
 
 def make_html_report(record, image_bytes=None):
@@ -371,11 +357,6 @@ if page == "保存データを確認する":
             on_click="ignore",
             key="download_all_records_zip",
         )
-        st.caption("ダウンロードが完了したことを確認してから、必要に応じて下のボタンで検出結果を消去してください。")
-        if st.button("ダウンロード後に検出結果を消去する", key="clear_records_after_download"):
-            clear_detection_data_after_download()
-            st.rerun()
-
         st.divider()
         st.subheader("保存データの一括削除")
         deletion_choices = {
@@ -574,13 +555,11 @@ if uploaded_file:
                 set_flash("手動追加したポイントをすべてリセットしました。")
                 st.rerun()
 
-        st.image(
-            display_np,
-            caption="検出結果画像（クリック操作用）",
-            use_container_width=True,
-        )
+        st.caption("下の検出結果画像をクリックして、ポイントの追加・削除を行えます。")
         fix_coords = streamlit_image_coordinates(
-            Image.fromarray(display_np), key="manual_fix", width=display_width
+            Image.fromarray(display_np),
+            key="manual_fix",
+            width=display_width,
         )
         if fix_coords:
             curr_p = (fix_coords["x"], fix_coords["y"])
@@ -690,10 +669,6 @@ if uploaded_file:
                 on_click="ignore",
                 key="download_saved_result_zip",
             )
-            st.caption("ダウンロードが完了したことを確認してから、必要に応じて下のボタンで検出結果を消去してください。")
-            if st.button("ダウンロード後に検出結果を消去する", key="clear_saved_result_after_download"):
-                clear_detection_data_after_download()
-                st.rerun()
 
         if st.button("⏮️ 次の画像へ"):
             reset_current_image()
