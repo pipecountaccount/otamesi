@@ -348,15 +348,80 @@ if page == "保存データを確認する":
 
         export_data = create_saved_record_export(record)
         export_name = export_basename(record)
-        st.download_button(
-            "⬇️ 全保存データのCSVとHTMLをダウンロード",
-            data=export_data,
-            file_name=f"{export_name}_全データ.zip",
-            mime="application/zip",
-            type="primary",
-            on_click="ignore",
-            key="download_all_records_zip",
+        download_col, preview_col = st.columns([3, 1])
+        with download_col:
+            st.download_button(
+                "⬇️ 全保存データのCSVとHTMLをダウンロード",
+                data=export_data,
+                file_name=f"{export_name}_全データ.zip",
+                mime="application/zip",
+                type="primary",
+                on_click="ignore",
+                key="download_all_records_zip",
+                use_container_width=True,
+            )
+        with preview_col:
+            preview_html = make_all_html_report(records)
+            preview_html_b64 = base64.b64encode(
+                preview_html.encode("utf-8")
+            ).decode("ascii")
+            st.components.v1.html(
+                f"""
+                <button id="open-saved-html"
+                    style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 100%;
+                        min-height: 42px;
+                        box-sizing: border-box;
+                        padding: 0.25rem 0.75rem;
+                        border: 1px solid rgba(49, 51, 63, 0.2);
+                        border-radius: 0.5rem;
+                        color: inherit;
+                        background: white;
+                        font-size: 14px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        white-space: nowrap;
+                    ">
+                    HTMLで確認 ↗
+                </button>
+                <script>
+                (() => {{
+                    const button = document.getElementById("open-saved-html");
+                    button.addEventListener("click", () => {{
+                        try {{
+                            const encoded = "{preview_html_b64}";
+                            const binary = atob(encoded);
+                            const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+                            const html = new TextDecoder("utf-8").decode(bytes);
+                            const blob = new Blob([html], {{ type: "text/html;charset=utf-8" }});
+                            const url = URL.createObjectURL(blob);
+                            const opened = window.open(url, "_blank");
+                            if (!opened) {{
+                                alert("別タブがブロックされました。ブラウザのポップアップを許可してください。");
+                                URL.revokeObjectURL(url);
+                                return;
+                            }}
+                            setTimeout(() => URL.revokeObjectURL(url), 60000);
+                        }} catch (error) {{
+                            alert("HTMLを開けませんでした: " + error.message);
+                        }}
+                    }});
+                }})();
+                </script>
+                """,
+                height=55,
+                scrolling=False,
+            )
+
+        st.success(
+            "ダウンロードする際に、ZIPファイルには保存済みの全検出結果を含めます。"
+            "必要ないデータは下のボタンで削除してからダウンロードを行ってください。"
+            "なおZIPファイルにはCSVとHTMLファイルがあります。"
         )
+
         st.divider()
         st.subheader("保存データの一括削除")
         deletion_choices = {
